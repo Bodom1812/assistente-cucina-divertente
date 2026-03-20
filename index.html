@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1, viewport-fit=cover"
+  />
+  <title>Chef LAIve</title>
+  <meta
+    name="description"
+    content="Assistente cucina PWA con timer, ricette, modalità step-by-step e un pizzico di caos controllato."
+  />
+  <meta name="theme-color" content="#16111f" />
+
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+
+  <meta property="og:title" content="Chef LAIve" />
+  <meta
+    property="og:description"
+    content="Timer veloci, ricette del ricettario e modalità cucina pensata per la vita vera."
+  />
+  <meta property="og:type" content="website" />
+</head>
+<body>
+  <div id="app-splash" class="app-splash" aria-hidden="true">
+    <img
+      src="hero.png"
+      alt="Splash screen Chef LAIve"
+      class="app-splash__image"
+    />
+  </div>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="topbar__brand">
+        <img src="icons/icon-192.png" alt="Logo Chef LAIve" class="topbar__logo" />
+        <div>
+          <p class="eyebrow">Assistente cucina</p>
+          <h1>Chef LAIve</h1>
+        </div>
+      </div>
+
+      <button id="refreshRecipesBtn" class="ghost-btn" type="button">
+        Aggiorna ricette
+      </button>
+    </header>
+
+    <main class="layout">
+      <section class="hero-card">
+        <div>
+          <p class="eyebrow">Dashboard cucina reale</p>
+          <h2>Timer veloci, ricette utili, zero frizione.</h2>
+          <p class="hero-copy">
+            Apri, imposta, cucina. E possibilmente non dimenticare il fornello acceso.
+          </p>
+        </div>
+
+        <div class="hero-badges">
+          <span class="pill">Multi-timer</span>
+          <span class="pill">Ricette live da Supabase</span>
+          <span class="pill">Modalità cucina</span>
+        </div>
+      </section>
+
+      <section class="panel panel--timer">
+        <div class="panel__head">
+          <div>
+            <p class="eyebrow">Priorità assoluta</p>
+            <h3>Timer veloce</h3>
+          </div>
+        </div>
+
+        <div class="timer-form">
+          <label class="field">
+            <span>Nome timer</span>
+            <input
+              id="timerNameInput"
+              type="text"
+              placeholder="Pasta, forno, uova..."
+              maxlength="40"
+            />
+          </label>
+
+          <label class="field">
+            <span>Minuti</span>
+            <input
+              id="timerMinutesInput"
+              type="number"
+              inputmode="numeric"
+              min="1"
+              max="999"
+              step="1"
+              placeholder="10"
+            />
+          </label>
+
+          <button id="startTimerBtn" class="primary-btn" type="button">
+            Avvia timer
+          </button>
+        </div>
+
+        <div class="quick-minutes">
+          <button class="minute-chip" type="button" data-minutes="1">+1 min</button>
+          <button class="minute-chip" type="button" data-minutes="3">+3 min</button>
+          <button class="minute-chip" type="button" data-minutes="5">+5 min</button>
+          <button class="minute-chip" type="button" data-minutes="10">+10 min</button>
+          <button class="minute-chip" type="button" data-minutes="15">+15 min</button>
+        </div>
+
+        <div class="timers-header">
+          <div>
+            <strong>Timer attivi</strong>
+            <p id="timerSummary" class="muted">Nessun timer attivo. Pace apparente.</p>
+          </div>
+          <button id="stopAllTimersBtn" class="ghost-btn ghost-btn--danger" type="button">
+            Ferma tutti
+          </button>
+        </div>
+
+        <div id="timersList" class="timers-list"></div>
+      </section>
+
+      <section id="resumePanel" class="panel hidden">
+        <div class="panel__head">
+          <div>
+            <p class="eyebrow">Continua a cucinare</p>
+            <h3>Hai lasciato una ricetta a metà</h3>
+          </div>
+        </div>
+
+        <div id="resumeCard" class="resume-card"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head">
+          <div>
+            <p class="eyebrow">Ricettario collegato</p>
+            <h3>Scegli una ricetta</h3>
+          </div>
+          <span id="recipesCount" class="count-badge">0 ricette</span>
+        </div>
+
+        <div class="recipes-toolbar">
+          <label class="field field--grow">
+            <span>Cerca</span>
+            <input
+              id="recipeSearchInput"
+              type="search"
+              placeholder="Pasta, pollo, peperoni, dolci..."
+            />
+          </label>
+
+          <label class="field">
+            <span>Categoria</span>
+            <select id="categorySelect">
+              <option value="all">Tutte</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="recipesState" class="empty-state">
+          Caricamento ricette in corso...
+        </div>
+
+        <div id="recipesGrid" class="recipes-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head">
+          <div>
+            <p class="eyebrow">Ultime usate</p>
+            <h3>Ripartenza veloce</h3>
+          </div>
+        </div>
+
+        <div id="recentRecipes" class="recent-list">
+          <div class="empty-state empty-state--small">Non hai ancora aperto nessuna ricetta.</div>
+        </div>
+      </section>
+
+      <section class="panel panel--fun">
+        <div class="panel__head">
+          <div>
+            <p class="eyebrow">Messaggio del giorno</p>
+            <h3>Supporto morale discutibile</h3>
+          </div>
+        </div>
+
+        <p id="funMessage" class="fun-message"></p>
+      </section>
+    </main>
+  </div>
+
+  <section id="cookMode" class="cook-mode hidden" aria-hidden="true">
+    <div class="cook-mode__backdrop"></div>
+
+    <div class="cook-mode__panel">
+      <header class="cook-mode__header">
+        <button id="closeCookModeBtn" class="ghost-btn" type="button">Esci</button>
+        <div class="cook-mode__title-wrap">
+          <p class="eyebrow">Modalità cucina</p>
+          <h2 id="cookRecipeTitle">Ricetta</h2>
+        </div>
+        <button id="resetRecipeProgressBtn" class="ghost-btn ghost-btn--danger" type="button">
+          Reset
+        </button>
+      </header>
+
+      <div class="cook-mode__body">
+        <aside class="cook-mode__sidebar">
+          <div class="recipe-cover-wrap">
+            <img id="cookRecipeImage" class="recipe-cover" alt="Immagine ricetta" />
+          </div>
+
+          <div id="cookRecipeMeta" class="recipe-meta"></div>
+
+          <details class="details-box">
+            <summary>Ingredienti</summary>
+            <ul id="ingredientsList" class="details-list"></ul>
+          </details>
+
+          <details class="details-box">
+            <summary>Tutti i passaggi</summary>
+            <ol id="allStepsList" class="details-list details-list--ordered"></ol>
+          </details>
+        </aside>
+
+        <div class="cook-mode__main">
+          <div class="step-card">
+            <div class="step-card__top">
+              <span id="stepCounter" class="count-badge">Passaggio 1 di 1</span>
+              <span id="stepTimeHint" class="step-time-hint hidden"></span>
+            </div>
+
+            <p id="currentStepText" class="current-step-text"></p>
+
+            <div id="stepTimerSuggestions" class="step-timer-suggestions"></div>
+
+            <div class="step-actions">
+              <button id="prevStepBtn" class="ghost-btn" type="button">Indietro</button>
+              <button id="repeatStepBtn" class="ghost-btn" type="button">Ripeti step</button>
+              <button id="nextStepBtn" class="primary-btn" type="button">Avanti</button>
+            </div>
+          </div>
+
+          <div class="cook-note">
+            <strong id="cookEncouragement">Stai andando bene.</strong>
+            <p id="cookSubline" class="muted">
+              Anche se la cucina a volte sembra un boss finale.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div id="toast" class="toast" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="data/config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
