@@ -7,6 +7,7 @@
   const RECIPES_STATUS = config.RECIPES_STATUS || "published";
   const SPLASH_MS = Number(config.SPLASH_MS || 3000);
   const DEFAULT_RECIPE_IMAGE = config.DEFAULT_RECIPE_IMAGE || "icons/icon-512.png";
+  const RECIPES_SITE_URL = config.RECIPES_SITE_URL || "https://neil-ricettario.vercel.app/";
 
   const STORAGE_KEYS = {
     timers: "chef-laive-timers",
@@ -56,11 +57,17 @@
     splash: document.getElementById("app-splash"),
     funMessage: document.getElementById("funMessage"),
 
+    heroTimerBtn: document.getElementById("heroTimerBtn"),
+    heroRecipesBtn: document.getElementById("heroRecipesBtn"),
+    heroCookBtn: document.getElementById("heroCookBtn"),
+    timerPanel: document.getElementById("timerPanel"),
+    recipesPanel: document.getElementById("recipesPanel"),
+
     timerNameInput: document.getElementById("timerNameInput"),
     timerMinutesInput: document.getElementById("timerMinutesInput"),
     startTimerBtn: document.getElementById("startTimerBtn"),
     stopAllTimersBtn: document.getElementById("stopAllTimersBtn"),
-    minuteChips: document.querySelectorAll(".minute-chip"),
+    minuteChips: document.querySelectorAll(".minute-chip[data-minutes]"),
     timersList: document.getElementById("timersList"),
     timerSummary: document.getElementById("timerSummary"),
 
@@ -115,6 +122,14 @@
     }, 1800);
   }
 
+  function scrollToElement(element) {
+    if (!element) return;
+    element.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  }
+
   function loadJSON(key, fallback) {
     try {
       const raw = localStorage.getItem(key);
@@ -149,12 +164,35 @@
     return String(recipe?.slug || recipe?.id || recipe?.title || "");
   }
 
+  function resolveImageUrl(rawValue) {
+    const raw = String(rawValue || "").trim();
+    if (!raw) return DEFAULT_RECIPE_IMAGE;
+
+    if (/^https?:\/\//i.test(raw)) {
+      return raw;
+    }
+
+    if (raw.startsWith("/")) {
+      try {
+        return new URL(raw, RECIPES_SITE_URL).toString();
+      } catch {
+        return raw;
+      }
+    }
+
+    try {
+      return new URL(raw, RECIPES_SITE_URL).toString();
+    } catch {
+      return raw;
+    }
+  }
+
   function normalizeRecipe(recipe) {
     return {
       ...recipe,
       ingredients: safeArray(recipe.ingredients),
       steps: safeArray(recipe.steps),
-      image_url: String(recipe.image_url || "").trim() || DEFAULT_RECIPE_IMAGE,
+      image_url: resolveImageUrl(recipe.image_url || recipe.image || ""),
       _search: [
         recipe.title,
         recipe.category,
@@ -325,7 +363,7 @@
                 <button class="recipe-card__action recipe-card__action--primary" type="button" data-open-recipe="${escapeHtml(key)}">
                   Cucina ora
                 </button>
-                <a class="recipe-card__action recipe-card__action--ghost" href="/recipe/${encodeURIComponent(recipe.slug)}" target="_blank" rel="noopener">
+                <a class="recipe-card__action recipe-card__action--ghost" href="https://neil-ricettario.vercel.app/recipe/${encodeURIComponent(recipe.slug)}" target="_blank" rel="noopener">
                   Apri ricetta
                 </a>
               </div>
@@ -573,6 +611,26 @@
     els.cookMode.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
     releaseWakeLock();
+  }
+
+  function openSavedCookModeIfPossible() {
+    const progress = getCurrentRecipeProgress();
+
+    if (!progress || !progress.recipeKey) {
+      showToast("Apri una ricetta e poi qui potrai rientrare al volo in modalità cucina.");
+      scrollToElement(els.recipesPanel);
+      return;
+    }
+
+    const recipe = state.recipes.find((item) => getRecipeKey(item) === progress.recipeKey);
+
+    if (!recipe) {
+      showToast("Non trovo più l'ultima ricetta aperta. Scendiamo alle ricette e ne scegliamo un'altra.");
+      scrollToElement(els.recipesPanel);
+      return;
+    }
+
+    openCookMode(recipe, progress.stepIndex || 0);
   }
 
   function beepAlarm() {
@@ -896,6 +954,20 @@
 
     els.recipeSearchInput.addEventListener("input", renderRecipes);
     els.categorySelect.addEventListener("change", renderRecipes);
+
+    els.heroTimerBtn.addEventListener("click", () => {
+      scrollToElement(els.timerPanel);
+      els.timerMinutesInput.focus();
+    });
+
+    els.heroRecipesBtn.addEventListener("click", () => {
+      scrollToElement(els.recipesPanel);
+      els.recipeSearchInput.focus();
+    });
+
+    els.heroCookBtn.addEventListener("click", () => {
+      openSavedCookModeIfPossible();
+    });
 
     els.closeCookModeBtn.addEventListener("click", closeCookMode);
 
