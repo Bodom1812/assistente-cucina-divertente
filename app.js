@@ -50,7 +50,9 @@
     currentRecipe: null,
     currentStepIndex: 0,
     supabaseClient: null,
-    wakeLock: null
+    wakeLock: null,
+    recognition: null,
+    voiceListening: false
   };
 
   const els = {
@@ -90,6 +92,7 @@
     cookRecipeMeta: document.getElementById("cookRecipeMeta"),
     ingredientsList: document.getElementById("ingredientsList"),
     allStepsList: document.getElementById("allStepsList"),
+    stepCard: document.getElementById("stepCard"),
     stepCounter: document.getElementById("stepCounter"),
     stepTimeHint: document.getElementById("stepTimeHint"),
     currentStepText: document.getElementById("currentStepText"),
@@ -97,6 +100,9 @@
     prevStepBtn: document.getElementById("prevStepBtn"),
     repeatStepBtn: document.getElementById("repeatStepBtn"),
     nextStepBtn: document.getElementById("nextStepBtn"),
+    speakStepBtn: document.getElementById("speakStepBtn"),
+    stopSpeechBtn: document.getElementById("stopSpeechBtn"),
+    voiceToggleBtn: document.getElementById("voiceToggleBtn"),
     cookEncouragement: document.getElementById("cookEncouragement"),
     cookSubline: document.getElementById("cookSubline"),
 
@@ -125,6 +131,14 @@
   function scrollToElement(element) {
     if (!element) return;
     element.scrollIntoView({
+      behavior: "smooth",
+      block: "start"
+    });
+  }
+
+  function scrollCookStepToTop() {
+    if (!els.stepCard) return;
+    els.stepCard.scrollIntoView({
       behavior: "smooth",
       block: "start"
     });
@@ -222,10 +236,6 @@
 
   function saveCurrentRecipeProgress(recipeKey, stepIndex) {
     saveJSON(STORAGE_KEYS.currentRecipe, { recipeKey, stepIndex });
-  }
-
-  function clearCurrentRecipeProgress() {
-    localStorage.removeItem(STORAGE_KEYS.currentRecipe);
   }
 
   function getNextFunnyMessage() {
@@ -500,6 +510,145 @@
       .join("");
   }
 
+  function speak(text) {
+    if (!("speechSynthesis" in window)) {
+      showToast("La lettura vocale non è disponibile qui.");
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(String(text || ""));
+    utterance.lang = "it-IT";
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function stopSpeech() {
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+  }
+
+  function setVoiceToggleUi(isListening) {
+    if (!els.voiceToggleBtn) return;
+
+    if (isListening) {
+      els.voiceToggleBtn.classList.add("voice-active");
+      els.voiceToggleBtn.textContent = "🎤 In ascolto...";
+    } else {
+      els.voiceToggleBtn.classList.remove("voice-active");
+      els.voiceToggleBtn.textContent = "🎤 Attiva voce";
+    }
+  }
+
+  function handleVoiceCommand(text) {
+    const cmd = String(text || "").toLowerCase().trim();
+    if (!cmd) return;
+
+    if (cmd.includes("avanti")) {
+      els.nextStepBtn.click();
+      return;
+    }
+
+    if (cmd.includes("indietro")) {
+      els.prevStepBtn.click();
+      return;
+    }
+
+    if (cmd.includes("ripeti")) {
+      els.repeatStepBtn.click();
+      return;
+    }
+
+    if (cmd.includes("chiudi")) {
+      closeCookMode();
+      return;
+    }
+
+    if (cmd.includes("stop voce") || cmd === "stop") {
+      stopSpeech();
+      showToast("Voce fermata.");
+      return;
+    }
+
+    const timerMatch = cmd.match(/(?:timer|avvia timer)\s*(\d+)\s*(?:minuti|min|minute)/);
+    if (timerMatch) {
+      const minutes = Number(timerMatch[1]);
+      if (Number.isFinite(minutes) && minutes > 0) {
+        createTimer({
+          name: "Timer vocale",
+          minutes
+        });
+        return;
+      }
+    }
+  }
+
+  function toggleVoiceRecognition() {
+    const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognitionClass) {
+      showToast("Comandi vocali non supportati su questo browser.");
+      return;
+    }
+
+    if (!state.recognition) {
+      state.recognition = new SpeechRecognitionClass();
+      state.recognition.lang = "it-IT";
+      state.recognition.continuous = true;
+      state.recognition.interimResults = false;
+
+      state.recognition.onresult = (event) => {
+        const lastResult = event.results[event.results.length - 1];
+        const transcript = lastResult[0].transcript || "";
+        handleVoiceCommand(transcript);
+      };
+
+      state.recognition.onend = () => {
+        if (state.voiceListening) {
+          try {
+            state.recognition.start();
+          } catch {
+            state.voiceListening = false;
+            setVoiceToggleUi(false);
+          }
+        } else {
+          setVoiceToggleUi(false);
+        }
+      };
+
+      state.recognition.onerror = () => {
+        state.voiceListening = false;
+        setVoiceToggleUi(false);
+        showToast("Microfono non disponibile o permesso negato.");
+      };
+    }
+
+    if (!state.voiceListening) {
+      try {
+        state.recognition.start();
+        state.voiceListening = true;
+        setVoiceToggleUi(true);
+        showToast("Comandi vocali attivi.");
+      } catch {
+        state.voiceListening = false;
+        setVoiceToggleUi(false);
+        showToast("Non sono riuscito ad avviare il microfono.");
+      }
+    } else {
+      state.voiceListening = false;
+      setVoiceToggleUi(false);
+      try {
+        state.recognition.stop();
+      } catch {
+        // ignore
+      }
+      showToast("Comandi vocali disattivati.");
+    }
+  }
+
   function updateCookStep() {
     if (!state.currentRecipe) return;
 
@@ -550,6 +699,12 @@
     const encouragementIndex = currentIndex % cookEncouragements.length;
     els.cookEncouragement.textContent = cookEncouragements[encouragementIndex];
     els.cookSubline.textContent = cookSublines[encouragementIndex % cookSublines.length];
+
+    if (currentIndex === totalSteps - 1) {
+      els.cookSubline.textContent = "Ultimo step. Adesso chiudi in bellezza e spera bene.";
+    }
+
+    scrollCookStepToTop();
   }
 
   async function requestWakeLock() {
@@ -611,6 +766,17 @@
     els.cookMode.setAttribute("aria-hidden", "true");
     document.body.style.overflow = "";
     releaseWakeLock();
+    stopSpeech();
+
+    if (state.voiceListening && state.recognition) {
+      state.voiceListening = false;
+      setVoiceToggleUi(false);
+      try {
+        state.recognition.stop();
+      } catch {
+        // ignore
+      }
+    }
   }
 
   function openSavedCookModeIfPossible() {
@@ -988,7 +1154,21 @@
 
     els.repeatStepBtn.addEventListener("click", () => {
       updateCookStep();
-      showToast("Step ripetuto. Non era colpa mia se stavi pensando ad altro.");
+      speak(els.currentStepText.textContent);
+      showToast("Step ripetuto.");
+    });
+
+    els.speakStepBtn.addEventListener("click", () => {
+      speak(els.currentStepText.textContent);
+    });
+
+    els.stopSpeechBtn.addEventListener("click", () => {
+      stopSpeech();
+      showToast("Voce fermata.");
+    });
+
+    els.voiceToggleBtn.addEventListener("click", () => {
+      toggleVoiceRecognition();
     });
 
     els.resetRecipeProgressBtn.addEventListener("click", () => {
@@ -1040,6 +1220,7 @@
     fetchRecipes();
     hideSplash();
     registerServiceWorker();
+    setVoiceToggleUi(false);
 
     setInterval(tickTimers, 1000);
   }

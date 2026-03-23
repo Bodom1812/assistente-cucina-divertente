@@ -230,7 +230,7 @@
         </aside>
 
         <div class="cook-mode__main">
-          <div class="step-card">
+          <div class="step-card" id="stepCard">
             <div class="step-card__top">
               <span id="stepCounter" class="count-badge">Passaggio 1 di 1</span>
               <span id="stepTimeHint" class="step-time-hint hidden"></span>
@@ -241,9 +241,15 @@
             <div id="stepTimerSuggestions" class="step-timer-suggestions"></div>
 
             <div class="step-actions">
-              <button id="prevStepBtn" class="ghost-btn" type="button">Indietro</button>
-              <button id="repeatStepBtn" class="ghost-btn" type="button">Ripeti step</button>
-              <button id="nextStepBtn" class="primary-btn" type="button">Avanti</button>
+              <button id="prevStepBtn" class="ghost-btn" type="button">⬅ Indietro</button>
+              <button id="repeatStepBtn" class="ghost-btn" type="button">🔁 Ripeti</button>
+              <button id="nextStepBtn" class="primary-btn" type="button">➡ Avanti</button>
+            </div>
+
+            <div class="voice-controls">
+              <button id="speakStepBtn" class="primary-btn" type="button">🔊 Leggi step</button>
+              <button id="stopSpeechBtn" class="ghost-btn" type="button">⛔ Stop voce</button>
+              <button id="voiceToggleBtn" class="ghost-btn" type="button">🎤 Attiva voce</button>
             </div>
           </div>
 
