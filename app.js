@@ -271,11 +271,14 @@
     }
 
     try {
-      const { data, error } = await state.supabaseClient
+      const query = state.supabaseClient
         .from(RECIPES_TABLE)
         .select("*")
-        .eq("status", RECIPES_STATUS)
         .order("title", { ascending: true });
+
+      const { data, error } = RECIPES_STATUS
+        ? await query.eq("status", RECIPES_STATUS)
+        : await query;
 
       if (error) throw error;
 
@@ -547,13 +550,17 @@
     const cmd = String(text || "").toLowerCase().trim();
     if (!cmd) return;
 
+    console.log("[Chef LAIve][voce] comando riconosciuto:", cmd);
+
     if (cmd.includes("avanti")) {
       els.nextStepBtn.click();
+      showToast("Step successivo.");
       return;
     }
 
     if (cmd.includes("indietro")) {
       els.prevStepBtn.click();
+      showToast("Step precedente.");
       return;
     }
 
@@ -573,17 +580,30 @@
       return;
     }
 
-    const timerMatch = cmd.match(/(?:timer|avvia timer)\s*(\d+)\s*(?:minuti|min|minute)/);
+    const timerMatch =
+      cmd.match(/(?:avvia\s+)?timer\s*(\d+)\s*(?:minuti|minuto|min|minute)?/) ||
+      cmd.match(/(\d+)\s*(?:minuti|minuto|min|minute)\s*(?:di\s+)?timer/);
+
     if (timerMatch) {
       const minutes = Number(timerMatch[1]);
+
       if (Number.isFinite(minutes) && minutes > 0) {
+        const timerName = state.currentRecipe
+          ? `${state.currentRecipe.title} · timer vocale`
+          : "Timer vocale";
+
         createTimer({
-          name: "Timer vocale",
+          name: timerName,
           minutes
         });
+
+        showToast(`Timer vocale avviato: ${minutes} min`);
+        speak(`Timer avviato per ${minutes} minuti`);
         return;
       }
     }
+
+    showToast(`Comando non riconosciuto: ${cmd}`);
   }
 
   function toggleVoiceRecognition() {
