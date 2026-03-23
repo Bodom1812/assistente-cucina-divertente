@@ -149,7 +149,7 @@
     clearTimeout(showToast._timer);
     showToast._timer = setTimeout(() => {
       els.toast.classList.remove("show");
-    }, 2200);
+    }, 2400);
   }
 
   function scrollToElement(element) {
@@ -1383,6 +1383,7 @@
         .select("*")
         .eq("list_id", listId)
         .order("completed", { ascending: true })
+        .order("priority", { ascending: false })
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -1506,10 +1507,10 @@
 
       existingNormalized.add(normalized);
 
-      // payload minimo e compatibile
       toInsert.push({
         list_id: listId,
         name: displayName,
+        quantity: "",
         completed: false
       });
     });
