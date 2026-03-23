@@ -16,10 +16,6 @@
 
   const SHOPPING_SUPABASE_URL = "https://idxyoplprfuazkatzdxg.supabase.co";
   const SHOPPING_SUPABASE_ANON_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
-
-  // Ripristino chiave reale se la stringa sopra venisse accidentalmente alterata
-  const REAL_SHOPPING_SUPABASE_ANON_KEY =
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkeHlvcGxwcmZ1YXprYXR6ZHhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MjYwOTcsImV4cCI6MjA4OTQwMjA5N30.mngK-vE4vsgd_T88OSAY3e0Hk_CrdIgyWJmdlRjBAMs";
 
   const STORAGE_KEYS = {
@@ -382,7 +378,7 @@
 
     return window.supabase.createClient(
       SHOPPING_SUPABASE_URL,
-      REAL_SHOPPING_SUPABASE_ANON_KEY
+      SHOPPING_SUPABASE_ANON_KEY
     );
   }
 
@@ -1869,11 +1865,40 @@
   }
 
   function registerServiceWorker() {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("sw.js").catch((error) => {
+    if (!("serviceWorker" in navigator)) return;
+
+    let refreshing = false;
+
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      window.location.reload();
+    });
+
+    navigator.serviceWorker
+      .register("sw.js")
+      .then((registration) => {
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: "SKIP_WAITING" });
+        }
+
+        registration.addEventListener("updatefound", () => {
+          const newWorker = registration.installing;
+          if (!newWorker) return;
+
+          newWorker.addEventListener("statechange", () => {
+            if (
+              newWorker.state === "installed" &&
+              navigator.serviceWorker.controller
+            ) {
+              newWorker.postMessage({ type: "SKIP_WAITING" });
+            }
+          });
+        });
+      })
+      .catch((error) => {
         console.warn("Service worker non registrato:", error);
       });
-    }
   }
 
   function hideSplash() {
