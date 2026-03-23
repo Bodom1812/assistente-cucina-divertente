@@ -9,10 +9,15 @@
   const DEFAULT_RECIPE_IMAGE = config.DEFAULT_RECIPE_IMAGE || "icons/icon-512.png";
   const RECIPES_SITE_URL = config.RECIPES_SITE_URL || "https://neil-ricettario.vercel.app/";
 
-  const SHOPPING_LISTS_TABLE = config.SHOPPING_LISTS_TABLE || "shopping_lists";
-  const SHOPPING_ITEMS_TABLE = config.SHOPPING_ITEMS_TABLE || "shopping_items";
-  const SHOPPING_STORAGE_KEY = config.SHOPPING_STORAGE_KEY || "laista-active-list-id";
-  const SHOPPING_APP_URL = config.SHOPPING_APP_URL || "https://laista-della-spesa.vercel.app/";
+  const SHOPPING_LISTS_TABLE = "shopping_lists";
+  const SHOPPING_ITEMS_TABLE = "shopping_items";
+  const SHOPPING_STORAGE_KEY = "laista-active-list-id";
+  const SHOPPING_APP_URL = "https://laista-della-spesa.vercel.app/";
+
+  // Stesso Supabase usato dalla LAIsta
+  const SHOPPING_SUPABASE_URL = "https://idxyoplprfuazkatzdxg.supabase.co";
+  const SHOPPING_SUPABASE_ANON_KEY =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkeHlvcGxwcmZ1YXprYXR6ZHhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MjYwOTcsImV4cCI6MjA4OTQwMjA5N30.mngK-vE4vsgd_T88OSAY3e0Hk_CrdIgyWJmdlRjBAMs";
 
   const STORAGE_KEYS = {
     timers: "chef-laive-timers",
@@ -54,7 +59,8 @@
     timers: [],
     currentRecipe: null,
     currentStepIndex: 0,
-    supabaseClient: null,
+    supabaseClient: null,         // ricette
+    shoppingSupabaseClient: null, // spesa
     wakeLock: null,
     recognition: null,
     voiceListening: false,
@@ -100,6 +106,7 @@
     shoppingPreview: document.getElementById("shoppingPreview"),
     shoppingOpenBtn: document.getElementById("shoppingOpenBtn"),
     shoppingRefreshBtn: document.getElementById("shoppingRefreshBtn"),
+    shoppingCount: document.getElementById("shoppingCount"),
 
     cookMode: document.getElementById("cookMode"),
     closeCookModeBtn: document.getElementById("closeCookModeBtn"),
@@ -191,6 +198,36 @@
     return Array.isArray(value) ? value.filter(Boolean) : [];
   }
 
+  function parseStringList(value) {
+    if (Array.isArray(value)) {
+      return value.filter(Boolean).map((item) => String(item).trim()).filter(Boolean);
+    }
+
+    if (typeof value !== "string") {
+      return [];
+    }
+
+    const source = value.trim();
+    if (!source) return [];
+
+    if (source.startsWith("[") && source.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(source);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(Boolean).map((item) => String(item).trim()).filter(Boolean);
+        }
+      } catch {
+        // fallback sotto
+      }
+    }
+
+    return source
+      .split(/\r?\n|;/)
+      .map((item) => item.trim())
+      .map((item) => item.replace(/^[•\-–—*\d.)]+\s*/, "").trim())
+      .filter(Boolean);
+  }
+
   function getRecipeKey(recipe) {
     return String(recipe?.slug || recipe?.id || recipe?.title || "");
   }
@@ -219,17 +256,20 @@
   }
 
   function normalizeRecipe(recipe) {
+    const ingredients = parseStringList(recipe.ingredients);
+    const steps = parseStringList(recipe.steps);
+
     return {
       ...recipe,
-      ingredients: safeArray(recipe.ingredients),
-      steps: safeArray(recipe.steps),
+      ingredients,
+      steps,
       image_url: resolveImageUrl(recipe.image_url || recipe.image || ""),
       _search: [
         recipe.title,
         recipe.category,
         recipe.source,
-        ...(safeArray(recipe.ingredients)),
-        ...(safeArray(recipe.steps))
+        ...ingredients,
+        ...steps
       ]
         .filter(Boolean)
         .join(" ")
@@ -255,6 +295,10 @@
     saveJSON(STORAGE_KEYS.currentRecipe, { recipeKey, stepIndex });
   }
 
+  function clearCurrentRecipeProgress() {
+    localStorage.removeItem(STORAGE_KEYS.currentRecipe);
+  }
+
   function getNextFunnyMessage() {
     const index = Number(localStorage.getItem(STORAGE_KEYS.funIndex) || "0");
     const nextIndex = (index + 1) % funnyMessages.length;
@@ -276,6 +320,15 @@
     return window.supabase.createClient(
       config.SUPABASE_URL,
       config.SUPABASE_ANON_KEY
+    );
+  }
+
+  function createShoppingSupabaseClient() {
+    if (!window.supabase) return null;
+
+    return window.supabase.createClient(
+      SHOPPING_SUPABASE_URL,
+      SHOPPING_SUPABASE_ANON_KEY
     );
   }
 
@@ -482,15 +535,17 @@
     const recipe = state.recipes.find((item) => getRecipeKey(item) === progress.recipeKey);
     if (!recipe) {
       els.resumePanel.classList.add("hidden");
+      els.resumeCard.innerHTML = "";
       return;
     }
 
-    const stepNumber = Math.min((progress.stepIndex || 0) + 1, Math.max(recipe.steps.length, 1));
+    const totalSteps = Math.max(recipe.steps.length, 1);
+    const stepNumber = Math.min((progress.stepIndex || 0) + 1, totalSteps);
 
     els.resumePanel.classList.remove("hidden");
     els.resumeCard.innerHTML = `
       <h4>${escapeHtml(recipe.title)}</h4>
-      <p>Sei rimasto al passaggio ${stepNumber} di ${recipe.steps.length || 1}.</p>
+      <p>Sei rimasto al passaggio ${stepNumber} di ${totalSteps}.</p>
       <button id="resumeRecipeBtn" class="resume-btn" type="button">Riprendi ricetta</button>
     `;
 
@@ -716,6 +771,15 @@
     }
   }
 
+  function completeCurrentRecipe() {
+    if (!state.currentRecipe) return;
+
+    clearCurrentRecipeProgress();
+    renderResumePanel();
+    showToast(`Ricetta completata: ${state.currentRecipe.title}`);
+    closeCookMode();
+  }
+
   function updateCookStep() {
     if (!state.currentRecipe) return;
 
@@ -731,7 +795,14 @@
     els.stepCounter.textContent = `Passaggio ${currentIndex + 1} di ${totalSteps}`;
     els.currentStepText.textContent = stepText;
     els.prevStepBtn.disabled = currentIndex === 0;
-    els.nextStepBtn.disabled = currentIndex >= totalSteps - 1;
+
+    if (currentIndex >= totalSteps - 1) {
+      els.nextStepBtn.disabled = false;
+      els.nextStepBtn.textContent = "✅ Completa";
+    } else {
+      els.nextStepBtn.disabled = false;
+      els.nextStepBtn.textContent = "➡ Avanti";
+    }
 
     if (minutes.length) {
       const pretty = minutes.map((item) => `${item} min`).join(" · ");
@@ -768,7 +839,7 @@
     els.cookSubline.textContent = cookSublines[encouragementIndex % cookSublines.length];
 
     if (currentIndex === totalSteps - 1) {
-      els.cookSubline.textContent = "Ultimo step. Adesso chiudi in bellezza e spera bene.";
+      els.cookSubline.textContent = "Ultimo step. Chiudi in bellezza e poi completa la ricetta.";
     }
 
     scrollCookStepToTop();
@@ -1230,13 +1301,14 @@
     els.shoppingState.textContent = "Sto caricando le liste della spesa.";
     els.shoppingPreview.innerHTML = "";
 
-    if (!state.supabaseClient) {
-      els.shoppingState.textContent = "Configurazione Supabase mancante.";
+    if (!state.shoppingSupabaseClient) {
+      els.shoppingState.textContent = "Configurazione Supabase spesa mancante.";
+      if (els.shoppingCount) els.shoppingCount.textContent = "0 articoli";
       return;
     }
 
     try {
-      const { data, error } = await state.supabaseClient
+      const { data, error } = await state.shoppingSupabaseClient
         .from(SHOPPING_LISTS_TABLE)
         .select("*")
         .order("name", { ascending: true });
@@ -1248,6 +1320,7 @@
       if (!state.shoppingLists.length) {
         els.shoppingListSelect.innerHTML = "";
         els.shoppingState.textContent = "Nessuna lista disponibile.";
+        if (els.shoppingCount) els.shoppingCount.textContent = "0 articoli";
         return;
       }
 
@@ -1264,6 +1337,7 @@
     } catch (error) {
       console.error("Errore caricamento liste spesa:", error);
       els.shoppingState.textContent = "Non sono riuscito a caricare le liste della spesa.";
+      if (els.shoppingCount) els.shoppingCount.textContent = "0 articoli";
     }
   }
 
@@ -1289,6 +1363,7 @@
       els.shoppingState.classList.remove("hidden");
       els.shoppingState.textContent = "Seleziona una lista della spesa.";
       els.shoppingPreview.innerHTML = "";
+      if (els.shoppingCount) els.shoppingCount.textContent = "0 articoli";
       return;
     }
 
@@ -1296,13 +1371,14 @@
     els.shoppingState.textContent = "Sto caricando gli articoli della lista.";
     els.shoppingPreview.innerHTML = "";
 
-    if (!state.supabaseClient) {
-      els.shoppingState.textContent = "Configurazione Supabase mancante.";
+    if (!state.shoppingSupabaseClient) {
+      els.shoppingState.textContent = "Configurazione Supabase spesa mancante.";
+      if (els.shoppingCount) els.shoppingCount.textContent = "0 articoli";
       return;
     }
 
     try {
-      const { data, error } = await state.supabaseClient
+      const { data, error } = await state.shoppingSupabaseClient
         .from(SHOPPING_ITEMS_TABLE)
         .select("*")
         .eq("list_id", listId)
@@ -1319,11 +1395,16 @@
       els.shoppingState.classList.remove("hidden");
       els.shoppingState.textContent = "Non sono riuscito a caricare gli articoli della lista.";
       els.shoppingPreview.innerHTML = "";
+      if (els.shoppingCount) els.shoppingCount.textContent = "0 articoli";
     }
   }
 
   function renderShoppingPreview() {
     if (!els.shoppingState || !els.shoppingPreview) return;
+
+    if (els.shoppingCount) {
+      els.shoppingCount.textContent = `${state.shoppingItems.length} articoli`;
+    }
 
     if (!state.shoppingItems.length) {
       els.shoppingState.classList.remove("hidden");
@@ -1374,12 +1455,21 @@
       return;
     }
 
-    if (!state.supabaseClient) {
-      showToast("Configurazione Supabase mancante.");
+    if (!state.shoppingSupabaseClient) {
+      showToast("Configurazione Supabase spesa mancante.");
       return;
     }
 
-    const rawIngredients = safeArray(recipe?.ingredients);
+    let rawIngredients = recipe?.ingredients || [];
+
+    if (typeof rawIngredients === "string") {
+      rawIngredients = parseStringList(rawIngredients);
+    }
+
+    rawIngredients = safeArray(rawIngredients);
+
+    console.log("INGREDIENTI ORIGINALI:", recipe?.ingredients);
+    console.log("INGREDIENTI PARSATI:", rawIngredients);
 
     if (!rawIngredients.length) {
       showToast("Questa ricetta non ha ingredienti utilizzabili.");
@@ -1427,6 +1517,8 @@
       });
     });
 
+    console.log("DA INSERIRE:", toInsert);
+
     if (!toInsert.length) {
       const bits = [];
       if (duplicateCount) bits.push(`${duplicateCount} già presenti`);
@@ -1436,11 +1528,14 @@
     }
 
     try {
-      const { error } = await state.supabaseClient
+      const { error } = await state.shoppingSupabaseClient
         .from(SHOPPING_ITEMS_TABLE)
         .insert(toInsert);
 
-      if (error) throw error;
+      if (error) {
+        console.error("ERRORE INSERT:", error);
+        throw error;
+      }
 
       await fetchShoppingItems(listId);
 
@@ -1549,10 +1644,16 @@
 
     els.nextStepBtn.addEventListener("click", () => {
       if (!state.currentRecipe) return;
-      state.currentStepIndex = Math.min(
-        Math.max(state.currentRecipe.steps.length - 1, 0),
-        state.currentStepIndex + 1
-      );
+
+      const totalSteps = Math.max(state.currentRecipe.steps.length, 1);
+      const isLastStep = state.currentStepIndex >= totalSteps - 1;
+
+      if (isLastStep) {
+        completeCurrentRecipe();
+        return;
+      }
+
+      state.currentStepIndex = Math.min(totalSteps - 1, state.currentStepIndex + 1);
       updateCookStep();
     });
 
@@ -1617,6 +1718,7 @@
   async function init() {
     initDocumentMeta();
     state.supabaseClient = createSupabaseClient();
+    state.shoppingSupabaseClient = createShoppingSupabaseClient();
     setFunMessage();
     loadTimers();
     renderTimers();
