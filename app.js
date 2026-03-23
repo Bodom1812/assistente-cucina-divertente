@@ -552,6 +552,17 @@
 
     console.log("[Chef LAIve][voce] comando riconosciuto:", cmd);
 
+    if (
+      cmd === "leggi" ||
+      cmd.includes("leggi step") ||
+      cmd.includes("leggi questo") ||
+      cmd.includes("leggilo")
+    ) {
+      speak(els.currentStepText.textContent);
+      showToast("Leggo lo step.");
+      return;
+    }
+
     if (cmd.includes("avanti")) {
       els.nextStepBtn.click();
       showToast("Step successivo.");
