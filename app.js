@@ -14,7 +14,6 @@
   const SHOPPING_STORAGE_KEY = "laista-active-list-id";
   const SHOPPING_APP_URL = "https://laista-della-spesa.vercel.app/";
 
-  // Stesso Supabase usato dalla LAIsta
   const SHOPPING_SUPABASE_URL = "https://idxyoplprfuazkatzdxg.supabase.co";
   const SHOPPING_SUPABASE_ANON_KEY =
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkeHlvcGxwcmZ1YXprYXR6ZHhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MjYwOTcsImV4cCI6MjA4OTQwMjA5N30.mngK-vE4vsgd_T88OSAY3e0Hk_CrdIgyWJmdlRjBAMs";
@@ -59,8 +58,8 @@
     timers: [],
     currentRecipe: null,
     currentStepIndex: 0,
-    supabaseClient: null,         // ricette
-    shoppingSupabaseClient: null, // spesa
+    supabaseClient: null,
+    shoppingSupabaseClient: null,
     wakeLock: null,
     recognition: null,
     voiceListening: false,
@@ -149,7 +148,7 @@
     clearTimeout(showToast._timer);
     showToast._timer = setTimeout(() => {
       els.toast.classList.remove("show");
-    }, 2400);
+    }, 2600);
   }
 
   function scrollToElement(element) {
@@ -1468,9 +1467,6 @@
 
     rawIngredients = safeArray(rawIngredients);
 
-    console.log("INGREDIENTI ORIGINALI:", recipe?.ingredients);
-    console.log("INGREDIENTI PARSATI:", rawIngredients);
-
     if (!rawIngredients.length) {
       showToast("Questa ricetta non ha ingredienti utilizzabili.");
       return;
@@ -1510,12 +1506,10 @@
       toInsert.push({
         list_id: listId,
         name: displayName,
-        quantity: "",
+        quantity: 1,
         completed: false
       });
     });
-
-    console.log("DA INSERIRE:", toInsert);
 
     if (!toInsert.length) {
       const bits = [];
