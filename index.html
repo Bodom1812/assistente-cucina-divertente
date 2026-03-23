@@ -63,6 +63,7 @@
           <button id="heroTimerBtn" class="minute-chip" type="button">Multi-timer</button>
           <button id="heroRecipesBtn" class="minute-chip" type="button">Ricette live da Supabase</button>
           <button id="heroCookBtn" class="minute-chip" type="button">Modalità cucina</button>
+          <button id="heroShoppingBtn" class="minute-chip" type="button">Lista della spesa</button>
         </div>
       </section>
 
@@ -167,6 +168,36 @@
         </div>
 
         <div id="recipesGrid" class="recipes-grid"></div>
+      </section>
+
+      <section id="shoppingPanel" class="panel">
+        <div class="panel__head">
+          <div>
+            <p class="eyebrow">Collegamento rapido</p>
+            <h3>Spesa rapida</h3>
+          </div>
+          <span id="shoppingCount" class="count-badge">0 articoli</span>
+        </div>
+
+        <div class="recipes-toolbar">
+          <label class="field field--grow">
+            <span>Lista attiva</span>
+            <select id="shoppingListSelect">
+              <option value="">Caricamento liste...</option>
+            </select>
+          </label>
+
+          <div class="field">
+            <span>Azioni</span>
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              <button id="shoppingRefreshBtn" class="ghost-btn" type="button">Aggiorna</button>
+              <button id="shoppingOpenBtn" class="primary-btn" type="button">Apri LAIsta completa</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="shoppingState" class="empty-state hidden"></div>
+        <div id="shoppingPreview" class="recent-list"></div>
       </section>
 
       <section class="panel">

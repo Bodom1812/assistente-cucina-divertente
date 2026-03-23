@@ -9,6 +9,11 @@
   const DEFAULT_RECIPE_IMAGE = config.DEFAULT_RECIPE_IMAGE || "icons/icon-512.png";
   const RECIPES_SITE_URL = config.RECIPES_SITE_URL || "https://neil-ricettario.vercel.app/";
 
+  const SHOPPING_LISTS_TABLE = config.SHOPPING_LISTS_TABLE || "shopping_lists";
+  const SHOPPING_ITEMS_TABLE = config.SHOPPING_ITEMS_TABLE || "shopping_items";
+  const SHOPPING_STORAGE_KEY = config.SHOPPING_STORAGE_KEY || "laista-active-list-id";
+  const SHOPPING_APP_URL = config.SHOPPING_APP_URL || "https://laista-della-spesa.vercel.app/";
+
   const STORAGE_KEYS = {
     timers: "chef-laive-timers",
     recent: "chef-laive-recent-recipes",
@@ -52,7 +57,10 @@
     supabaseClient: null,
     wakeLock: null,
     recognition: null,
-    voiceListening: false
+    voiceListening: false,
+    shoppingLists: [],
+    shoppingItems: [],
+    selectedShoppingListId: ""
   };
 
   const els = {
@@ -62,8 +70,11 @@
     heroTimerBtn: document.getElementById("heroTimerBtn"),
     heroRecipesBtn: document.getElementById("heroRecipesBtn"),
     heroCookBtn: document.getElementById("heroCookBtn"),
+    heroShoppingBtn: document.getElementById("heroShoppingBtn"),
+
     timerPanel: document.getElementById("timerPanel"),
     recipesPanel: document.getElementById("recipesPanel"),
+    shoppingPanel: document.getElementById("shoppingPanel"),
 
     timerNameInput: document.getElementById("timerNameInput"),
     timerMinutesInput: document.getElementById("timerMinutesInput"),
@@ -83,6 +94,12 @@
     recipesState: document.getElementById("recipesState"),
     recipesCount: document.getElementById("recipesCount"),
     recentRecipes: document.getElementById("recentRecipes"),
+
+    shoppingListSelect: document.getElementById("shoppingListSelect"),
+    shoppingState: document.getElementById("shoppingState"),
+    shoppingPreview: document.getElementById("shoppingPreview"),
+    shoppingOpenBtn: document.getElementById("shoppingOpenBtn"),
+    shoppingRefreshBtn: document.getElementById("shoppingRefreshBtn"),
 
     cookMode: document.getElementById("cookMode"),
     closeCookModeBtn: document.getElementById("closeCookModeBtn"),
@@ -246,7 +263,9 @@
   }
 
   function setFunMessage() {
-    els.funMessage.textContent = getNextFunnyMessage();
+    if (els.funMessage) {
+      els.funMessage.textContent = getNextFunnyMessage();
+    }
   }
 
   function createSupabaseClient() {
@@ -355,6 +374,10 @@
     els.recipesGrid.innerHTML = state.filteredRecipes
       .map((recipe) => {
         const key = getRecipeKey(recipe);
+        const recipeHref = recipe.slug
+          ? `https://neil-ricettario.vercel.app/recipe/${encodeURIComponent(recipe.slug)}`
+          : RECIPES_SITE_URL;
+
         return `
           <article class="recipe-card">
             <div class="recipe-card__image-wrap">
@@ -376,7 +399,10 @@
                 <button class="recipe-card__action recipe-card__action--primary" type="button" data-open-recipe="${escapeHtml(key)}">
                   Cucina ora
                 </button>
-                <a class="recipe-card__action recipe-card__action--ghost" href="https://neil-ricettario.vercel.app/recipe/${encodeURIComponent(recipe.slug)}" target="_blank" rel="noopener">
+                <button class="recipe-card__action recipe-card__action--ghost" type="button" data-add-shopping="${escapeHtml(key)}">
+                  Aggiungi alla spesa
+                </button>
+                <a class="recipe-card__action recipe-card__action--ghost" href="${escapeHtml(recipeHref)}" target="_blank" rel="noopener">
                   Apri ricetta
                 </a>
               </div>
@@ -392,6 +418,16 @@
         const recipe = state.recipes.find((item) => getRecipeKey(item) === key);
         if (recipe) {
           openCookMode(recipe, 0);
+        }
+      });
+    });
+
+    els.recipesGrid.querySelectorAll("[data-add-shopping]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const key = button.getAttribute("data-add-shopping");
+        const recipe = state.recipes.find((item) => getRecipeKey(item) === key);
+        if (recipe) {
+          await addRecipeIngredientsToShoppingList(recipe);
         }
       });
     });
@@ -1108,6 +1144,316 @@
     }
   }
 
+  function getStoredShoppingListId() {
+    return localStorage.getItem(SHOPPING_STORAGE_KEY) || "";
+  }
+
+  function saveStoredShoppingListId(listId) {
+    if (!listId) return;
+    localStorage.setItem(SHOPPING_STORAGE_KEY, listId);
+  }
+
+  function normalizeIngredientName(raw) {
+    let text = String(raw || "").toLowerCase().trim();
+
+    text = text.replace(/\([^)]*\)/g, " ");
+    text = text.replace(/\[[^\]]*\]/g, " ");
+    text = text.replace(/,+/g, " ");
+    text = text.replace(/\s+/g, " ");
+
+    text = text.replace(
+      /^(?:circa|ca\.?|qb|q\.b\.?|quanto basta|un pizzico di|una presa di)\s+/i,
+      ""
+    );
+
+    text = text.replace(
+      /^(\d+[.,]?\d*)\s*(kg|g|gr|grammi|grammo|ml|cl|dl|l|litri|litro|cucchiai|cucchiaio|cucchiaini|cucchiaino|tazze|tazza|bicchieri|bicchiere|spicchi|spicchio|fette|fetta|rametti|rametto|foglie|foglia|pezzi|pezzo)?\s*(di\s+)?/i,
+      ""
+    );
+
+    text = text.replace(
+      /^(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\s+/i,
+      ""
+    );
+
+    text = text.replace(/^(di|da|del|della|dello|dei|degli|delle)\s+/i, "");
+    text = text.replace(/\s+/g, " ").trim();
+
+    return text;
+  }
+
+  function shouldIgnoreIngredient(raw) {
+    const text = String(raw || "").toLowerCase().trim();
+    const normalized = normalizeIngredientName(text);
+
+    if (!normalized) return true;
+
+    const exactIgnored = new Set([
+      "q.b.",
+      "qb",
+      "quanto basta",
+      "sale q.b.",
+      "pepe q.b.",
+      "acqua q.b.",
+      "olio q.b.",
+      "olio evo q.b.",
+      "farina per spolverare",
+      "burro per ungere"
+    ]);
+
+    if (exactIgnored.has(text) || exactIgnored.has(normalized)) {
+      return true;
+    }
+
+    if (
+      text.includes("q.b") ||
+      text.includes("q.b.") ||
+      text.includes("quanto basta")
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function getDisplayIngredientName(raw) {
+    const text = String(raw || "").trim();
+    const normalized = normalizeIngredientName(text);
+    if (!normalized) return "";
+    return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  }
+
+  async function fetchShoppingLists() {
+    if (!els.shoppingListSelect || !els.shoppingState || !els.shoppingPreview) return;
+
+    els.shoppingState.classList.remove("hidden");
+    els.shoppingState.textContent = "Sto caricando le liste della spesa.";
+    els.shoppingPreview.innerHTML = "";
+
+    if (!state.supabaseClient) {
+      els.shoppingState.textContent = "Configurazione Supabase mancante.";
+      return;
+    }
+
+    try {
+      const { data, error } = await state.supabaseClient
+        .from(SHOPPING_LISTS_TABLE)
+        .select("*")
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+
+      state.shoppingLists = safeArray(data);
+
+      if (!state.shoppingLists.length) {
+        els.shoppingListSelect.innerHTML = "";
+        els.shoppingState.textContent = "Nessuna lista disponibile.";
+        return;
+      }
+
+      const storedId = getStoredShoppingListId();
+      const validStored = state.shoppingLists.find((item) => String(item.id) === String(storedId));
+
+      state.selectedShoppingListId = validStored
+        ? String(validStored.id)
+        : String(state.shoppingLists[0].id);
+
+      saveStoredShoppingListId(state.selectedShoppingListId);
+      renderShoppingLists();
+      await fetchShoppingItems(state.selectedShoppingListId);
+    } catch (error) {
+      console.error("Errore caricamento liste spesa:", error);
+      els.shoppingState.textContent = "Non sono riuscito a caricare le liste della spesa.";
+    }
+  }
+
+  function renderShoppingLists() {
+    if (!els.shoppingListSelect) return;
+
+    els.shoppingListSelect.innerHTML = state.shoppingLists
+      .map(
+        (list) => `<option value="${escapeHtml(list.id)}">${escapeHtml(list.name || "Lista")}</option>`
+      )
+      .join("");
+
+    if (state.selectedShoppingListId) {
+      els.shoppingListSelect.value = state.selectedShoppingListId;
+    }
+  }
+
+  async function fetchShoppingItems(listId) {
+    if (!els.shoppingState || !els.shoppingPreview) return;
+
+    if (!listId) {
+      state.shoppingItems = [];
+      els.shoppingState.classList.remove("hidden");
+      els.shoppingState.textContent = "Seleziona una lista della spesa.";
+      els.shoppingPreview.innerHTML = "";
+      return;
+    }
+
+    els.shoppingState.classList.remove("hidden");
+    els.shoppingState.textContent = "Sto caricando gli articoli della lista.";
+    els.shoppingPreview.innerHTML = "";
+
+    if (!state.supabaseClient) {
+      els.shoppingState.textContent = "Configurazione Supabase mancante.";
+      return;
+    }
+
+    try {
+      const { data, error } = await state.supabaseClient
+        .from(SHOPPING_ITEMS_TABLE)
+        .select("*")
+        .eq("list_id", listId)
+        .order("completed", { ascending: true })
+        .order("priority", { ascending: false })
+        .order("created_at", { ascending: false });
+
+      if (error) throw error;
+
+      state.shoppingItems = safeArray(data);
+      renderShoppingPreview();
+    } catch (error) {
+      console.error("Errore caricamento articoli spesa:", error);
+      els.shoppingState.classList.remove("hidden");
+      els.shoppingState.textContent = "Non sono riuscito a caricare gli articoli della lista.";
+      els.shoppingPreview.innerHTML = "";
+    }
+  }
+
+  function renderShoppingPreview() {
+    if (!els.shoppingState || !els.shoppingPreview) return;
+
+    if (!state.shoppingItems.length) {
+      els.shoppingState.classList.remove("hidden");
+      els.shoppingState.textContent = "La lista è vuota. Un raro momento di quiete.";
+      els.shoppingPreview.innerHTML = "";
+      return;
+    }
+
+    els.shoppingState.classList.add("hidden");
+
+    const visibleItems = state.shoppingItems.slice(0, 12);
+
+    els.shoppingPreview.innerHTML = `
+      <div class="recent-list">
+        ${visibleItems
+          .map((item) => {
+            const status = item.completed ? "✓" : "•";
+            const quantity = item.quantity ? ` · ${escapeHtml(item.quantity)}` : "";
+            const priority = item.priority ? " · Priorità" : "";
+
+            return `
+              <article class="recent-card">
+                <h4>${status} ${escapeHtml(item.name || "Articolo")}</h4>
+                <p>${escapeHtml(item.completed ? "Completato" : "Da comprare")}${quantity}${priority}</p>
+              </article>
+            `;
+          })
+          .join("")}
+      </div>
+    `;
+  }
+
+  function openFullShoppingApp() {
+    const listId = state.selectedShoppingListId;
+    const url = listId
+      ? `${SHOPPING_APP_URL}?list=${encodeURIComponent(listId)}`
+      : SHOPPING_APP_URL;
+
+    window.open(url, "_blank", "noopener");
+  }
+
+  async function addRecipeIngredientsToShoppingList(recipe) {
+    const listId = state.selectedShoppingListId;
+
+    if (!listId) {
+      showToast("Seleziona prima una lista della spesa.");
+      scrollToElement(els.shoppingPanel);
+      return;
+    }
+
+    if (!state.supabaseClient) {
+      showToast("Configurazione Supabase mancante.");
+      return;
+    }
+
+    const rawIngredients = safeArray(recipe?.ingredients);
+
+    if (!rawIngredients.length) {
+      showToast("Questa ricetta non ha ingredienti utilizzabili.");
+      return;
+    }
+
+    const existingNormalized = new Set(
+      state.shoppingItems
+        .map((item) => normalizeIngredientName(item?.name || ""))
+        .filter(Boolean)
+    );
+
+    const toInsert = [];
+    let ignoredCount = 0;
+    let duplicateCount = 0;
+
+    rawIngredients.forEach((raw) => {
+      if (shouldIgnoreIngredient(raw)) {
+        ignoredCount += 1;
+        return;
+      }
+
+      const normalized = normalizeIngredientName(raw);
+      const displayName = getDisplayIngredientName(raw);
+
+      if (!normalized || !displayName) {
+        ignoredCount += 1;
+        return;
+      }
+
+      if (existingNormalized.has(normalized)) {
+        duplicateCount += 1;
+        return;
+      }
+
+      existingNormalized.add(normalized);
+
+      toInsert.push({
+        list_id: listId,
+        name: displayName,
+        quantity: "",
+        priority: false,
+        completed: false,
+        image_url: null
+      });
+    });
+
+    if (!toInsert.length) {
+      const bits = [];
+      if (duplicateCount) bits.push(`${duplicateCount} già presenti`);
+      if (ignoredCount) bits.push(`${ignoredCount} ignorati`);
+      showToast(bits.length ? `Niente da aggiungere · ${bits.join(" · ")}` : "Niente da aggiungere.");
+      return;
+    }
+
+    try {
+      const { error } = await state.supabaseClient
+        .from(SHOPPING_ITEMS_TABLE)
+        .insert(toInsert);
+
+      if (error) throw error;
+
+      await fetchShoppingItems(listId);
+
+      const bits = [`Aggiunti ${toInsert.length}`];
+      if (duplicateCount) bits.push(`${duplicateCount} già presenti`);
+      if (ignoredCount) bits.push(`${ignoredCount} ignorati`);
+      showToast(bits.join(" · "));
+    } catch (error) {
+      console.error("Errore inserimento ingredienti spesa:", error);
+      showToast("Non sono riuscito ad aggiungere gli ingredienti alla lista.");
+    }
+  }
+
   function bindEvents() {
     els.startTimerBtn.addEventListener("click", () => {
       createTimer({
@@ -1165,6 +1511,33 @@
     els.heroCookBtn.addEventListener("click", () => {
       openSavedCookModeIfPossible();
     });
+
+    if (els.heroShoppingBtn) {
+      els.heroShoppingBtn.addEventListener("click", () => {
+        scrollToElement(els.shoppingPanel);
+      });
+    }
+
+    if (els.shoppingListSelect) {
+      els.shoppingListSelect.addEventListener("change", async (event) => {
+        state.selectedShoppingListId = String(event.target.value || "");
+        saveStoredShoppingListId(state.selectedShoppingListId);
+        await fetchShoppingItems(state.selectedShoppingListId);
+      });
+    }
+
+    if (els.shoppingRefreshBtn) {
+      els.shoppingRefreshBtn.addEventListener("click", async () => {
+        await fetchShoppingLists();
+        showToast("Lista della spesa aggiornata.");
+      });
+    }
+
+    if (els.shoppingOpenBtn) {
+      els.shoppingOpenBtn.addEventListener("click", () => {
+        openFullShoppingApp();
+      });
+    }
 
     els.closeCookModeBtn.addEventListener("click", closeCookMode);
 
@@ -1241,7 +1614,7 @@
     document.title = APP_NAME;
   }
 
-  function init() {
+  async function init() {
     initDocumentMeta();
     state.supabaseClient = createSupabaseClient();
     setFunMessage();
@@ -1249,6 +1622,7 @@
     renderTimers();
     bindEvents();
     fetchRecipes();
+    await fetchShoppingLists();
     hideSplash();
     registerServiceWorker();
     setVoiceToggleUi(false);
