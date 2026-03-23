@@ -149,7 +149,7 @@
     clearTimeout(showToast._timer);
     showToast._timer = setTimeout(() => {
       els.toast.classList.remove("show");
-    }, 1800);
+    }, 2200);
   }
 
   function scrollToElement(element) {
@@ -1383,7 +1383,6 @@
         .select("*")
         .eq("list_id", listId)
         .order("completed", { ascending: true })
-        .order("priority", { ascending: false })
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -1507,13 +1506,11 @@
 
       existingNormalized.add(normalized);
 
+      // payload minimo e compatibile
       toInsert.push({
         list_id: listId,
         name: displayName,
-        quantity: "",
-        priority: false,
-        completed: false,
-        image_url: null
+        completed: false
       });
     });
 
@@ -1534,7 +1531,8 @@
 
       if (error) {
         console.error("ERRORE INSERT:", error);
-        throw error;
+        showToast(`Errore DB: ${error.message || "sconosciuto"}`);
+        return;
       }
 
       await fetchShoppingItems(listId);
