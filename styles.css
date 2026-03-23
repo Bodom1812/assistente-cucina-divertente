@@ -63,6 +63,10 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+}
+
 .hidden {
   display: none !important;
 }
@@ -267,7 +271,7 @@ button {
   border-radius: var(--radius-md);
   border: 0;
   padding: 0 18px;
-  transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease;
+  transition: transform 0.16s ease, opacity 0.16s ease, background 0.16s ease, border-color 0.16s ease;
   font-weight: 800;
 }
 
@@ -472,7 +476,9 @@ button {
 .recipe-card__body {
   padding: 0 16px 16px;
   display: grid;
+  grid-template-rows: auto 1fr auto;
   gap: 12px;
+  min-height: 170px;
 }
 
 .recipe-card__title {
@@ -500,8 +506,9 @@ button {
 
 .recipe-card__actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  align-items: stretch;
 }
 
 .recipe-card__action {
@@ -512,10 +519,12 @@ button {
   justify-content: center;
   text-align: center;
   text-decoration: none;
-  white-space: nowrap;
-  line-height: 1;
-  padding: 0 14px;
-  font-size: 0.98rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.2;
+  padding: 12px 14px;
+  font-size: 0.95rem;
 }
 
 .recipe-card__action--primary {
@@ -527,6 +536,16 @@ button {
   background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   border: 1px solid var(--border);
+}
+
+.recipe-card__action--shopping {
+  min-width: 0;
+}
+
+.recipe-card__action[aria-busy="true"],
+.recipe-card__action:disabled {
+  opacity: 0.78;
+  transform: none;
 }
 
 .recent-list {
@@ -822,6 +841,14 @@ button {
   .cook-mode__body {
     grid-template-columns: 1fr;
   }
+
+  .recipe-card__actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recipe-card__action:first-child {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 720px) {
@@ -878,6 +905,10 @@ button {
 
   .recipe-card__actions {
     grid-template-columns: 1fr;
+  }
+
+  .recipe-card__action:first-child {
+    grid-column: auto;
   }
 
   .recipe-card__action {

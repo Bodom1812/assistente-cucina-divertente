@@ -16,6 +16,10 @@
 
   const SHOPPING_SUPABASE_URL = "https://idxyoplprfuazkatzdxg.supabase.co";
   const SHOPPING_SUPABASE_ANON_KEY =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInR5cCI6IkpXVCJ9";
+
+  // Ripristino chiave reale se la stringa sopra venisse accidentalmente alterata
+  const REAL_SHOPPING_SUPABASE_ANON_KEY =
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlkeHlvcGxwcmZ1YXprYXR6ZHhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MjYwOTcsImV4cCI6MjA4OTQwMjA5N30.mngK-vE4vsgd_T88OSAY3e0Hk_CrdIgyWJmdlRjBAMs";
 
   const STORAGE_KEYS = {
@@ -51,6 +55,57 @@
     "Eleganza, calma e mestolo saldo.",
     "La dignità culinaria è ancora intatta."
   ];
+
+  const SHOPPING_VALID_PRIORITIES = new Set(["urgent", "useful", "calm"]);
+
+  const SHOPPING_MEASURE_UNITS = [
+    "kg",
+    "g",
+    "gr",
+    "grammi",
+    "grammo",
+    "etti",
+    "etto",
+    "ml",
+    "cl",
+    "dl",
+    "l",
+    "litri",
+    "litro",
+    "cucchiai",
+    "cucchiaio",
+    "cucchiaini",
+    "cucchiaino",
+    "tazze",
+    "tazza",
+    "bicchieri",
+    "bicchiere",
+    "spicchi",
+    "spicchio",
+    "fette",
+    "fetta",
+    "rametti",
+    "rametto",
+    "foglie",
+    "foglia",
+    "pezzi",
+    "pezzo"
+  ];
+
+  const SHOPPING_TEXT_NUMBERS = {
+    un: 1,
+    uno: 1,
+    una: 1,
+    due: 2,
+    tre: 3,
+    quattro: 4,
+    cinque: 5,
+    sei: 6,
+    sette: 7,
+    otto: 8,
+    nove: 9,
+    dieci: 10
+  };
 
   const state = {
     recipes: [],
@@ -327,7 +382,7 @@
 
     return window.supabase.createClient(
       SHOPPING_SUPABASE_URL,
-      SHOPPING_SUPABASE_ANON_KEY
+      REAL_SHOPPING_SUPABASE_ANON_KEY
     );
   }
 
@@ -411,6 +466,18 @@
     return pieces.join("");
   }
 
+  function setRecipeActionButtonLoading(button, isLoading) {
+    if (!button) return;
+
+    if (!button.dataset.originalText) {
+      button.dataset.originalText = button.textContent;
+    }
+
+    button.disabled = isLoading;
+    button.textContent = isLoading ? "Aggiungo..." : button.dataset.originalText;
+    button.setAttribute("aria-busy", isLoading ? "true" : "false");
+  }
+
   function renderRecipes() {
     applyRecipeFilters();
     els.recipesCount.textContent = `${state.filteredRecipes.length} ricette`;
@@ -451,7 +518,7 @@
                 <button class="recipe-card__action recipe-card__action--primary" type="button" data-open-recipe="${escapeHtml(key)}">
                   Cucina ora
                 </button>
-                <button class="recipe-card__action recipe-card__action--ghost" type="button" data-add-shopping="${escapeHtml(key)}">
+                <button class="recipe-card__action recipe-card__action--ghost recipe-card__action--shopping" type="button" data-add-shopping="${escapeHtml(key)}">
                   Aggiungi alla spesa
                 </button>
                 <a class="recipe-card__action recipe-card__action--ghost" href="${escapeHtml(recipeHref)}" target="_blank" rel="noopener">
@@ -478,8 +545,13 @@
       button.addEventListener("click", async () => {
         const key = button.getAttribute("data-add-shopping");
         const recipe = state.recipes.find((item) => getRecipeKey(item) === key);
-        if (recipe) {
+        if (!recipe) return;
+
+        try {
+          setRecipeActionButtonLoading(button, true);
           await addRecipeIngredientsToShoppingList(recipe);
+        } finally {
+          setRecipeActionButtonLoading(button, false);
         }
       });
     });
@@ -773,9 +845,12 @@
   function completeCurrentRecipe() {
     if (!state.currentRecipe) return;
 
+    const completedTitle = state.currentRecipe.title || "Ricetta";
     clearCurrentRecipeProgress();
+    state.currentRecipe = null;
+    state.currentStepIndex = 0;
     renderResumePanel();
-    showToast(`Ricetta completata: ${state.currentRecipe.title}`);
+    showToast(`Ricetta completata: ${completedTitle}`);
     closeCookMode();
   }
 
@@ -1223,6 +1298,16 @@
     localStorage.setItem(SHOPPING_STORAGE_KEY, listId);
   }
 
+  function normalizeSpaces(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+
+  function capitalizeFirst(value) {
+    const text = normalizeSpaces(value);
+    if (!text) return "";
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  }
+
   function normalizeIngredientName(raw) {
     let text = String(raw || "").toLowerCase().trim();
 
@@ -1291,6 +1376,101 @@
     const normalized = normalizeIngredientName(text);
     if (!normalized) return "";
     return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  }
+
+  function toPositiveIntegerOrFallback(value, fallback = 1) {
+    const parsed = Number.parseInt(String(value || "").trim(), 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return fallback;
+    }
+    return parsed;
+  }
+
+  function stripLeadingArticles(value) {
+    return normalizeSpaces(
+      String(value || "").replace(/^(?:di|da|del|della|dello|dei|degli|delle)\s+/i, "")
+    );
+  }
+
+  function parseIngredientForShopping(raw) {
+    const original = normalizeSpaces(raw);
+    if (!original || shouldIgnoreIngredient(original)) return null;
+
+    const lowered = original.toLowerCase();
+    let quantity = 1;
+    let finalName = "";
+    let dedupeKey = "";
+
+    const unitPattern = SHOPPING_MEASURE_UNITS.join("|");
+
+    const integerWithOptionalUnit = new RegExp(
+      `^(\\d+)\\s*(${unitPattern})?\\s*(di\\s+)?(.+)$`,
+      "i"
+    );
+
+    const decimalOrFraction = new RegExp(
+      `^(\\d+[.,]\\d+|\\d+\\/\\d+)\\s*(${unitPattern})?\\s*(di\\s+)?(.+)$`,
+      "i"
+    );
+
+    const textNumberMatch = lowered.match(/^(un|uno|una|due|tre|quattro|cinque|sei|sette|otto|nove|dieci)\s+(.+)$/i);
+    const integerMatch = original.match(integerWithOptionalUnit);
+    const decimalFractionMatch = original.match(decimalOrFraction);
+
+    if (integerMatch) {
+      const rawQty = integerMatch[1];
+      const rawUnit = normalizeSpaces(integerMatch[2] || "");
+      const rawRest = stripLeadingArticles(integerMatch[4] || "");
+      const parsedQty = toPositiveIntegerOrFallback(rawQty, 1);
+
+      if (rawRest) {
+        if (rawUnit) {
+          quantity = 1;
+          finalName = `${capitalizeFirst(rawRest)} (${rawQty} ${rawUnit})`;
+        } else {
+          quantity = parsedQty;
+          finalName = capitalizeFirst(rawRest);
+        }
+      }
+    } else if (decimalFractionMatch) {
+      const rawQty = normalizeSpaces(decimalFractionMatch[1] || "");
+      const rawUnit = normalizeSpaces(decimalFractionMatch[2] || "");
+      const rawRest = stripLeadingArticles(decimalFractionMatch[4] || "");
+
+      if (rawRest) {
+        quantity = 1;
+        finalName = rawUnit
+          ? `${capitalizeFirst(rawRest)} (${rawQty} ${rawUnit})`
+          : `${capitalizeFirst(rawRest)} (${rawQty})`;
+      }
+    } else if (textNumberMatch) {
+      const wordNumber = String(textNumberMatch[1] || "").toLowerCase();
+      const rawRest = stripLeadingArticles(textNumberMatch[2] || "");
+
+      if (rawRest) {
+        quantity = toPositiveIntegerOrFallback(SHOPPING_TEXT_NUMBERS[wordNumber], 1);
+        finalName = capitalizeFirst(rawRest);
+      }
+    }
+
+    if (!finalName) {
+      finalName = getDisplayIngredientName(original);
+    }
+
+    dedupeKey = normalizeIngredientName(finalName);
+
+    if (!dedupeKey || !finalName) {
+      return null;
+    }
+
+    return {
+      list_id: String(state.selectedShoppingListId || ""),
+      name: finalName,
+      quantity: toPositiveIntegerOrFallback(quantity, 1),
+      priority: SHOPPING_VALID_PRIORITIES.has("useful") ? "useful" : "calm",
+      completed: false,
+      dedupeKey
+    };
   }
 
   async function fetchShoppingLists() {
@@ -1421,8 +1601,11 @@
         ${visibleItems
           .map((item) => {
             const status = item.completed ? "✓" : "•";
-            const quantity = item.quantity ? ` · ${escapeHtml(item.quantity)}` : "";
-            const priority = item.priority ? " · Priorità" : "";
+            const quantity = Number.isFinite(Number(item.quantity)) ? ` · ${escapeHtml(item.quantity)}` : "";
+            const priority =
+              item.priority && SHOPPING_VALID_PRIORITIES.has(String(item.priority))
+                ? ` · ${escapeHtml(String(item.priority))}`
+                : "";
 
             return `
               <article class="recent-card">
@@ -1483,30 +1666,25 @@
     let duplicateCount = 0;
 
     rawIngredients.forEach((raw) => {
-      if (shouldIgnoreIngredient(raw)) {
+      const parsed = parseIngredientForShopping(raw);
+
+      if (!parsed) {
         ignoredCount += 1;
         return;
       }
 
-      const normalized = normalizeIngredientName(raw);
-      const displayName = getDisplayIngredientName(raw);
-
-      if (!normalized || !displayName) {
-        ignoredCount += 1;
-        return;
-      }
-
-      if (existingNormalized.has(normalized)) {
+      if (existingNormalized.has(parsed.dedupeKey)) {
         duplicateCount += 1;
         return;
       }
 
-      existingNormalized.add(normalized);
+      existingNormalized.add(parsed.dedupeKey);
 
       toInsert.push({
         list_id: listId,
-        name: displayName,
-        quantity: 1,
+        name: parsed.name,
+        quantity: toPositiveIntegerOrFallback(parsed.quantity, 1),
+        priority: SHOPPING_VALID_PRIORITIES.has(parsed.priority) ? parsed.priority : "useful",
         completed: false
       });
     });
